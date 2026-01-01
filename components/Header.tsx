@@ -9,7 +9,7 @@ const Header = ({user} : {user : User}) => {
             <div className="container header-wrapper">
                 <Link href="/" className="flex items-center gap-2">
                     <Image src="/assets/images/logo.png" alt="Stockzmaniac Logo" width={32} height={32} className="h-8 w-auto cursor-pointer" />
-                    <span className="text-2xl font-bold text-white">Stockzmaniac</span>
+                    <span className="text-2xl font-bold text-white">Signalist</span>
                 </Link>
                 <nav className="hidden sm:block">
                     <NavItems />

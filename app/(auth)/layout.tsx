@@ -12,7 +12,7 @@ const layout = async({children} : {children : React.ReactNode}) => {
             <section className="auth-left-section scrollbar-hide-default">
                 <Link href="/" className="auth-logo flex items-center gap-2">
                     <Image src="/assets/icons/logo.svg" alt="stockzmaniac-logo" width={140} height={32} className="h-8 w-auto" />
-                    <span className="text-2xl font-bold text-white">Stockzmaniac</span>
+                    <span className="text-2xl font-bold text-white">Signalist</span>
                 </Link>
 
                 <div className="pb-6 lg:pb-8 flex-1">{children}</div>
