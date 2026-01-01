@@ -28,4 +28,6 @@ export const connectToDatabase = async() => {
         throw err;
     }
     console.log(`MongoDB connected (${process.env.NODE_ENV})`);
+
+    return cached.conn;
 }
