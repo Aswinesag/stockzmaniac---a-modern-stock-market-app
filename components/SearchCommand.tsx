@@ -4,11 +4,13 @@ import { Button } from '@/components/ui/button';
 import { CommandDialog, CommandEmpty, CommandInput, CommandList } from '@/components/ui/command';
 import { useDebounce } from '@/hooks/useDebounce';
 import { searchStocks } from '@/lib/actions/finnhub.actions';
-import { Loader2, Star, TrendingUp } from 'lucide-react';
+import { getCurrentUserWatchlistSymbols } from '@/lib/actions/watchlist.actions';
+import { Loader2, TrendingUp } from 'lucide-react';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
+import WatchlistButton from './WatchlistButton';
 
-export default function SearchCommand({renderAs = 'button', label = "Add stock", initialStocks} : SearchCommandProps) {
+export default function SearchCommand({renderAs = 'button', label = "Add stock", initialStocks, className = ""} : SearchCommandProps) {
     const [open, setOpen] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
     const [loading, setLoading] = useState(false);
@@ -53,6 +55,15 @@ export default function SearchCommand({renderAs = 'button', label = "Add stock",
             setStocks(initialStocks);
         };
 
+        const handleWatchlistChange = (symbol: string, isAdded: boolean) => {
+            // Update the stocks array to reflect the watchlist change immediately
+            setStocks(prev => prev.map(stock => 
+                stock.symbol === symbol 
+                    ? { ...stock, isInWatchlist: isAdded }
+                    : stock
+            ));
+        };
+
         return (
             <>
             {renderAs==="text" ? (
@@ -60,7 +71,7 @@ export default function SearchCommand({renderAs = 'button', label = "Add stock",
                     {label}
                 </span>
             ) : (
-                <Button onClick={() => setOpen(true)} className='search-btn'>
+                <Button onClick={() => setOpen(true)} className={`search-btn ${className}`}>
                     {label}
                 </Button>
             )}
@@ -98,7 +109,13 @@ export default function SearchCommand({renderAs = 'button', label = "Add stock",
                                                     {stock.symbol} | {stock.exchange} | {stock.type}
                                                 </div>
                                             </div>
-                                            <Star />
+                                            <WatchlistButton
+                                                symbol={stock.symbol}
+                                                company={stock.name}
+                                                isInWatchlist={stock.isInWatchlist}
+                                                type="icon"
+                                                onWatchlistChange={handleWatchlistChange}
+                                            />
                                         </Link>
                                 </li>
                             ))}

@@ -2,9 +2,143 @@ import { getNews } from "@/lib/actions/finnhub.actions";
 import { getAllUsersForNewsEmail, UserForNewsEmail } from "@/lib/actions/user.actions";
 import { getWatchlistSymbolsByEmail } from "@/lib/actions/watchlist.actions";
 import { inngest } from "@/lib/inngest/client";
+import { getAlertCreatedEmailTemplate, getAlertTriggeredEmailTemplate } from "@/lib/nodemailer/alert-templates";
+import { sendEmail } from "@/lib/nodemailer/index";
 import { NEWS_SUMMARY_EMAIL_PROMPT, PERSONALIZED_WELCOME_EMAIL_PROMPT } from "@/lib/inngest/prompts";
 import { sendNewsSummaryEmail, sendWelcomeEmail } from "@/lib/nodemailer/index";
 import { getFormattedTodayDate } from "@/lib/utils";
+
+// Watchlist alert email function
+export const sendWatchlistAlertEmail = inngest.createFunction(
+  { id: "send-watchlist-alert-email" },
+  { cron: "0 9 * * *" }, // Daily at 9 AM
+  async ({ step }) => {
+    await step.run("get-all-users", async () => {
+      const { getAllUsersForNewsEmail } = await import("@/lib/actions/user.actions");
+      return await getAllUsersForNewsEmail();
+    });
+
+    await step.run("send-watchlist-emails", async () => {
+      const { getAllUsersForNewsEmail } = await import("@/lib/actions/user.actions");
+      const users = await getAllUsersForNewsEmail();
+      const { getWatchlistWithData } = await import("@/lib/actions/watchlist.actions");
+      const { getWatchlistAlertEmailTemplate } = await import("@/lib/nodemailer/watchlist-alert-templates");
+      
+      for (const user of users) {
+        const { email, name } = user;
+        
+        try {
+          // Get user's watchlist with detailed data
+          const watchlist = await getWatchlistWithData(email);
+          
+          if (watchlist.length === 0) {
+            continue; // Skip users with empty watchlists
+          }
+
+          // Calculate watchlist performance metrics
+          const totalValue = watchlist.reduce((sum, stock) => sum + (stock.currentPrice || 0), 0);
+          const gainers = watchlist.filter(stock => stock.changePercent && stock.changePercent > 0);
+          const losers = watchlist.filter(stock => stock.changePercent && stock.changePercent < 0);
+          const topGainer = gainers.length > 0 ? gainers.reduce((max, stock) => 
+            (stock.changePercent || 0) > (max.changePercent || 0) ? stock : max
+          ) : null;
+          const topLoser = losers.length > 0 ? losers.reduce((min, stock) => 
+            (stock.changePercent || 0) < (min.changePercent || 0) ? stock : min
+          ) : null;
+
+          const emailTemplate = getWatchlistAlertEmailTemplate({
+            email,
+            name: name || 'Trader',
+            watchlist,
+            totalValue,
+            gainersCount: gainers.length,
+            losersCount: losers.length,
+            topGainer,
+            topLoser,
+            date: new Date().toLocaleDateString('en-US', { 
+              weekday: 'long', 
+              year: 'numeric', 
+              month: 'long', 
+              day: 'numeric' 
+            }),
+          });
+          
+          const { sendEmail } = await import("@/lib/nodemailer/index");
+          await sendEmail(emailTemplate);
+          
+        } catch (error) {
+          console.error(`Failed to send watchlist alert to ${email}:`, error);
+        }
+      }
+    });
+  }
+);
+
+// Weekly watchlist summary (more detailed)
+export const sendWeeklyWatchlistSummary = inngest.createFunction(
+  { id: "send-weekly-watchlist-summary" },
+  { cron: "0 9 * * 1" }, // Mondays at 9 AM
+  async ({ step }) => {
+    await step.run("get-all-users", async () => {
+      const { getAllUsersForNewsEmail } = await import("@/lib/actions/user.actions");
+      return await getAllUsersForNewsEmail();
+    });
+
+    await step.run("send-weekly-summaries", async () => {
+      const { getAllUsersForNewsEmail } = await import("@/lib/actions/user.actions");
+      const users = await getAllUsersForNewsEmail();
+      const { getWatchlistWithData } = await import("@/lib/actions/watchlist.actions");
+      const { getWeeklyWatchlistSummaryTemplate } = await import("@/lib/nodemailer/watchlist-alert-templates");
+      
+      for (const user of users) {
+        const { email, name } = user;
+        
+        try {
+          const watchlist = await getWatchlistWithData(email);
+          
+          if (watchlist.length === 0) {
+            continue;
+          }
+
+          // Weekly performance analysis
+          const weeklyPerformance = watchlist.map(stock => ({
+            ...stock,
+            weeklyChange: stock.changePercent || 0,
+            weeklyValue: (stock.currentPrice || 0) * 100, // Assuming 100 shares
+          }));
+
+          const totalWeeklyChange = weeklyPerformance.reduce((sum, stock) => sum + stock.weeklyChange, 0) / watchlist.length;
+          const bestPerformer = weeklyPerformance.reduce((best, stock) => 
+            stock.weeklyChange > best.weeklyChange ? stock : best
+          );
+          const worstPerformer = weeklyPerformance.reduce((worst, stock) => 
+            stock.weeklyChange < worst.weeklyChange ? stock : worst
+          );
+
+          const emailTemplate = getWeeklyWatchlistSummaryTemplate({
+            email,
+            name: name || 'Trader',
+            watchlist: weeklyPerformance,
+            totalWeeklyChange,
+            bestPerformer,
+            worstPerformer,
+            weekOf: new Date().toLocaleDateString('en-US', { 
+              month: 'long', 
+              day: 'numeric', 
+              year: 'numeric' 
+            }),
+          });
+          
+          const { sendEmail } = await import("@/lib/nodemailer/index");
+          await sendEmail(emailTemplate);
+          
+        } catch (error) {
+          console.error(`Failed to send weekly summary to ${email}:`, error);
+        }
+      }
+    });
+  }
+);
 
 export const sendSignUpEmail = inngest.createFunction(
     { id: 'sign-up-email' },

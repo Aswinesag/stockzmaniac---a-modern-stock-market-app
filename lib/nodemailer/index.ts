@@ -9,6 +9,18 @@ export const transporter = nodemailer.createTransport({
     }
 })
 
+export const sendEmail = async ({ to, subject, html }: { to: string; subject: string; html: string }) => {
+    const mailOptions = {
+        from: `"Stockzmaniac" <${process.env.NODEMAILER_EMAIL!}>`,
+        to,
+        subject,
+        text: subject,
+        html,
+    };
+
+    await transporter.sendMail(mailOptions);
+};
+
 export const sendWelcomeEmail = async ({ email, name, intro }: WelcomeEmailData) => {
     const htmlTemplate = WELCOME_EMAIL_TEMPLATE
         .replace('{{name}}', name)

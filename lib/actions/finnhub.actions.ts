@@ -3,6 +3,8 @@
 import { POPULAR_STOCK_SYMBOLS } from '@/lib/constants';
 import { formatArticle, getDateRange, validateArticle } from '@/lib/utils';
 import { cache } from 'react';
+import { getCurrentUser } from '@/lib/actions/auth.actions';
+import { getCurrentUserWatchlist } from '@/lib/actions/watchlist.actions';
 
 const FINNHUB_BASE_URL = 'https://finnhub.io/api/v1';
 const NEXT_PUBLIC_FINNHUB_API_KEY = process.env.NEXT_PUBLIC_FINNHUB_API_KEY ?? '';
@@ -98,6 +100,127 @@ export async function getNews(symbols?: string[]): Promise<MarketNewsArticle[]> 
   }
 }
 
+export const getStockDetails = cache(async (symbol: string): Promise<{
+  symbol: string;
+  name: string;
+  currentPrice?: number;
+  changePercent?: number;
+  priceFormatted?: string;
+  changeFormatted?: string;
+  marketCap?: string;
+  peRatio?: string;
+} | null> => {
+  try {
+    const token = process.env.FINNHUB_API_KEY ?? NEXT_PUBLIC_FINNHUB_API_KEY;
+    if (!token) {
+      console.error('FINNHUB API key is not configured');
+      return null;
+    }
+
+    const upperSymbol = symbol.toUpperCase();
+    
+    // Fetch quote, profile, and financials in parallel
+    const [quoteData, profileData, financialsData] = await Promise.all([
+      fetchJSON<QuoteData>(`${FINNHUB_BASE_URL}/quote?symbol=${upperSymbol}&token=${token}`, 60),
+      fetchJSON<ProfileData>(`${FINNHUB_BASE_URL}/stock/profile2?symbol=${upperSymbol}&token=${token}`, 3600),
+      fetchJSON<FinancialsData>(`${FINNHUB_BASE_URL}/stock/metric?symbol=${upperSymbol}&metric=all&token=${token}`, 3600)
+    ]);
+
+    const currentPrice = quoteData?.c;
+    const changePercent = quoteData?.dp;
+    const name = profileData?.name || upperSymbol;
+    const marketCap = profileData?.marketCapitalization;
+    const peRatio = financialsData?.metric?.peBasicExclExtraTTM;
+
+    // Format price and change for display
+    let priceFormatted = '';
+    let changeFormatted = '';
+    
+    if (typeof currentPrice === 'number') {
+      priceFormatted = currentPrice.toFixed(2);
+    }
+    
+    if (typeof changePercent === 'number') {
+      const sign = changePercent >= 0 ? '+' : '';
+      changeFormatted = `${sign}${changePercent.toFixed(2)}%`;
+    }
+
+    // Format market cap
+    let marketCapFormatted = '';
+    if (typeof marketCap === 'number') {
+      if (marketCap >= 1e12) {
+        marketCapFormatted = `$${(marketCap / 1e12).toFixed(2)}T`;
+      } else if (marketCap >= 1e9) {
+        marketCapFormatted = `$${(marketCap / 1e9).toFixed(2)}B`;
+      } else if (marketCap >= 1e6) {
+        marketCapFormatted = `$${(marketCap / 1e6).toFixed(2)}M`;
+      } else {
+        marketCapFormatted = `$${marketCap.toFixed(0)}`;
+      }
+    }
+
+    // Format P/E ratio
+    let peRatioFormatted = '';
+    if (typeof peRatio === 'number' && isFinite(peRatio)) {
+      peRatioFormatted = peRatio.toFixed(2);
+    } else {
+      peRatioFormatted = 'N/A';
+    }
+
+    return {
+      symbol: upperSymbol,
+      name,
+      currentPrice,
+      changePercent,
+      priceFormatted,
+      changeFormatted,
+      marketCap: marketCapFormatted,
+      peRatio: peRatioFormatted,
+    };
+  } catch (err) {
+    console.error('Error fetching stock details:', err);
+    return null;
+  }
+});
+
+export const getUserWatchlist = cache(async (): Promise<StockWithData[]> => {
+  try {
+    const user = await getCurrentUser();
+    if (!user || !user.email) {
+      return [];
+    }
+
+    // Get user's watchlist with stock details
+    const watchlist = await getCurrentUserWatchlist();
+    
+    // Fetch stock details for each watchlist item
+    const watchlistWithDetails = await Promise.all(
+      watchlist.map(async (item) => {
+        try {
+          const details = await getStockDetails(item.symbol);
+          return {
+            ...item,
+            currentPrice: details?.currentPrice,
+            changePercent: details?.changePercent,
+            priceFormatted: details?.priceFormatted,
+            changeFormatted: details?.changeFormatted,
+            marketCap: details?.marketCap,
+            peRatio: details?.peRatio,
+          };
+        } catch (error) {
+          console.error(`Error fetching details for ${item.symbol}:`, error);
+          return item;
+        }
+      })
+    );
+
+    return watchlistWithDetails;
+  } catch (err) {
+    console.error('Error fetching user watchlist:', err);
+    return [];
+  }
+});
+
 export const searchStocks = cache(async (query?: string): Promise<StockWithWatchlistStatus[]> => {
   try {
     const token = process.env.FINNHUB_API_KEY ?? NEXT_PUBLIC_FINNHUB_API_KEY;
@@ -153,6 +276,19 @@ export const searchStocks = cache(async (query?: string): Promise<StockWithWatch
       results = Array.isArray(data?.result) ? data.result : [];
     }
 
+    // Get user's watchlist symbols to include watchlist status
+    let watchlistSymbols: string[] = [];
+    try {
+      const user = await getCurrentUser();
+      if (user && user.email) {
+        const watchlist = await getCurrentUserWatchlist();
+        watchlistSymbols = watchlist.map(item => item.symbol);
+      }
+    } catch (error) {
+      // If user is not authenticated or there's an error, continue with empty watchlist
+      console.log('Could not get watchlist symbols for search:', error);
+    }
+
     const mapped: StockWithWatchlistStatus[] = results
       .map((r) => {
         const upper = (r.symbol || '').toUpperCase();
@@ -166,7 +302,7 @@ export const searchStocks = cache(async (query?: string): Promise<StockWithWatch
           name,
           exchange,
           type,
-          isInWatchlist: false,
+          isInWatchlist: watchlistSymbols.includes(upper),
         };
         return item;
       })
