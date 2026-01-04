@@ -1,4 +1,4 @@
-# Stockzmaniac 📈
+# Signalist 📈
 
 A modern stock market application built with Next.js that provides real-time stock data, personalized watchlists, price alerts, and comprehensive market analysis.
 
